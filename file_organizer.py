@@ -36,7 +36,7 @@ def get_self_filename() -> str:
     try:
         if '__file__' in globals():
             return Path(__file__).name
-    except:
+    except (NameError, OSError):
         pass
     
     if sys.argv and sys.argv[0]:
@@ -49,6 +49,7 @@ SELF_PROGRAM_NAME = get_self_filename()
 
 
 def get_file_type(file_path: str) -> str:
+    """获取文件类型（按时间整理模式使用）"""
     ext = Path(file_path).suffix.lower()
     if ext in VIDEO_EXTENSIONS:
         return '视频'
@@ -56,6 +57,12 @@ def get_file_type(file_path: str) -> str:
         return '照片'
     elif ext in DOCUMENT_EXTENSIONS:
         return '文档'
+    elif ext in AUDIO_EXTENSIONS:
+        return '音频'
+    elif ext in APPLICATION_EXTENSIONS:
+        return '应用程序'
+    elif ext in ARCHIVE_EXTENSIONS:
+        return '压缩包'
     return None
 
 
@@ -113,7 +120,7 @@ def get_creation_date(path: str) -> datetime:
         else:
             creation_time = stat.st_ctime
         return datetime.fromtimestamp(creation_time)
-    except Exception:
+    except (OSError, ValueError, OverflowError):
         return datetime.now()
 
 
@@ -189,7 +196,7 @@ def load_log_history(target_dir: str) -> list:
             with open(log_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 return data.get('history', [])
-        except Exception:
+        except (json.JSONDecodeError, OSError, KeyError, TypeError):
             return []
     return []
 
@@ -204,66 +211,71 @@ def save_log_history(target_dir: str, history: list):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def create_log_record(target_dir: str, source_dir: str, process_folders: bool, 
-                     move_files: bool, organize_mode: str, processed_items: list):
-    history = load_log_history(target_dir)
-    
-    record = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'source_directory': str(Path(source_dir).resolve()),
-        'organize_mode': organize_mode,
-        'process_folders': process_folders,
-        'move_files': move_files,
-        'processed_count': len(processed_items),
-        'processed_items': processed_items
-    }
-    
-    history.append(record)
-    save_log_history(target_dir, history)
-    
-    print(f"\n已更新整理 log 文件：{get_log_file_path(target_dir)}")
+def create_log_record(target_dir: str, source_dir: str, process_folders: bool,
+                     move_files: bool, organize_mode: str, processed_items: list) -> bool:
+    try:
+        history = load_log_history(target_dir)
+
+        record = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'source_directory': str(Path(source_dir).resolve()),
+            'organize_mode': organize_mode,
+            'process_folders': process_folders,
+            'move_files': move_files,
+            'processed_count': len(processed_items),
+            'processed_items': processed_items
+        }
+
+        history.append(record)
+        save_log_history(target_dir, history)
+
+        print(f"\n已更新整理 log 文件：{get_log_file_path(target_dir)}")
+        return True
+    except (OSError, json.JSONEncodeError, TypeError) as e:
+        print(f"\n错误：保存 log 文件失败：{e}")
+        return False
 
 
-def process_folder_recursive_time(source_path: Path, target_path: Path, 
-                                  move_files: bool, processed_items: list, 
+def process_folder_recursive_time(source_path: Path, target_path: Path,
+                                  move_files: bool, processed_items: list,
                                   empty_folder_target: Path = None) -> tuple:
     processed_count = 0
     error_count = 0
-    
+
     for item in source_path.iterdir():
         if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
             continue
         if is_self_file(str(item)):
             continue
-        
+
         if item.is_file():
             if should_exclude_file(str(item)):
                 continue
-            
+
             file_type = get_file_type(str(item))
             if file_type is None:
                 continue
-            
+
             creation_date = get_creation_date(str(item))
             year, month, type_folder = get_category_folders(creation_date, file_type)
             dest_folder = target_path / year / month / type_folder
-            
+
             try:
                 dest_folder.mkdir(parents=True, exist_ok=True)
                 dest_file = dest_folder / item.name
-                
+
                 counter = 1
                 while dest_file.exists():
                     stem = item.stem
                     suffix = item.suffix
                     dest_file = dest_folder / f"{stem}_{counter}{suffix}"
                     counter += 1
-                
+
                 if move_files:
                     shutil.move(str(item), str(dest_file))
                 else:
                     shutil.copy2(str(item), str(dest_file))
-                
+
                 processed_items.append({
                     'type': 'file',
                     'name': item.name,
@@ -283,34 +295,34 @@ def process_folder_recursive_time(source_path: Path, target_path: Path,
             )
             processed_count += sub_count
             error_count += sub_error
-            
-            if processed_count > 0 or error_count > 0:
-                try:
-                    if not any(item.iterdir()):
-                        if empty_folder_target and move_files:
-                            empty_folder_target.mkdir(parents=True, exist_ok=True)
-                            dest_empty = empty_folder_target / item.name
-                            if dest_empty.exists():
-                                counter = 1
-                                while dest_empty.exists():
-                                    dest_empty = empty_folder_target / f"{item.name}_{counter}"
-                                    counter += 1
-                            shutil.move(str(item), str(dest_empty))
-                            print(f"已移动空文件夹到：空文件夹/{dest_empty.name}")
-                            processed_items.append({
-                                'type': 'folder',
-                                'name': item.name,
-                                'destination': f"空文件夹/{dest_empty.name}",
-                                'action': '移动',
-                                'source': str(item)
-                            })
-                        elif move_files:
-                            shutil.rmtree(str(item))
-                            print(f"已删除空文件夹：{item.name}")
-                        else:
-                            print(f"保留空文件夹：{item.name} (复制模式)")
-                except Exception:
-                    pass
+
+            # 修复：检查当前文件夹是否为空，而不是使用累计的processed_count
+            try:
+                if not any(item.iterdir()):
+                    if empty_folder_target and move_files:
+                        empty_folder_target.mkdir(parents=True, exist_ok=True)
+                        dest_empty = empty_folder_target / item.name
+                        if dest_empty.exists():
+                            counter = 1
+                            while dest_empty.exists():
+                                dest_empty = empty_folder_target / f"{item.name}_{counter}"
+                                counter += 1
+                        shutil.move(str(item), str(dest_empty))
+                        print(f"已移动空文件夹到：空文件夹/{dest_empty.name}")
+                        processed_items.append({
+                            'type': 'folder',
+                            'name': item.name,
+                            'destination': f"空文件夹/{dest_empty.name}",
+                            'action': '移动',
+                            'source': str(item)
+                        })
+                    elif move_files:
+                        shutil.rmtree(str(item))
+                        print(f"已删除空文件夹：{item.name}")
+                    else:
+                        print(f"保留空文件夹：{item.name} (复制模式)")
+            except (OSError, PermissionError, shutil.Error) as e:
+                print(f"处理空文件夹时出错 {item.name}: {e}")
     
     return processed_count, error_count
 
@@ -529,22 +541,22 @@ def process_folder_recursive(source_path: Path, target_path: Path, file_type_fun
                 error_count += 1
         
         elif item.is_dir():
-            sub_count, sub_error = process_folder_recursive(item, target_path, file_type_func, 
+            sub_count, sub_error = process_folder_recursive(item, target_path, file_type_func,
                                                            move_files, processed_items)
             processed_count += sub_count
             error_count += sub_error
-            
-            if processed_count > 0 or error_count > 0:
-                try:
-                    if not any(item.iterdir()):
-                        if move_files:
-                            shutil.rmtree(str(item))
-                            print(f"已删除空文件夹：{item.name}")
-                        else:
-                            print(f"保留空文件夹：{item.name} (复制模式)")
-                except Exception:
-                    pass
-    
+
+            # 修复：检查当前文件夹是否为空，而不是使用累计的processed_count
+            try:
+                if not any(item.iterdir()):
+                    if move_files:
+                        shutil.rmtree(str(item))
+                        print(f"已删除空文件夹：{item.name}")
+                    else:
+                        print(f"保留空文件夹：{item.name} (复制模式)")
+            except (OSError, PermissionError, shutil.Error) as e:
+                print(f"处理空文件夹时出错 {item.name}: {e}")
+
     return processed_count, error_count
 
 
@@ -720,7 +732,7 @@ def rollback_operation(target_dir: str, record_index: int) -> bool:
 
 def view_log_mode():
     print("=" * 60)
-    print("文件分类整理程序 v3.4.1 - 查看日志")
+    print("文件分类整理程序 v3.4.2 - 查看日志")
     print("=" * 60)
     print()
     
@@ -782,7 +794,7 @@ def view_log_mode():
 
 def rollback_mode(target_dir: str = None):
     print("=" * 60)
-    print("文件分类整理程序 v3.4.1 - 回滚模式")
+    print("文件分类整理程序 v3.4.2 - 回滚模式")
     print("=" * 60)
     print()
     
@@ -863,7 +875,7 @@ def rollback_mode(target_dir: str = None):
 
 def main():
     print("=" * 60)
-    print("文件分类整理程序 v3.4.1")
+    print("文件分类整理程序 v3.4.2")
     print("=" * 60)
     print()
     
