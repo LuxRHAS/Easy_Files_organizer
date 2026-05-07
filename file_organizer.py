@@ -25,10 +25,7 @@ LOG_FILENAME = 'log.json'
 
 def get_self_filename() -> str:
     if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            return Path(sys.executable).name
-        else:
-            return Path(sys.executable).name
+        return Path(sys.executable).name
     
     if 'python.app' in sys.executable or 'Contents/MacOS' in sys.executable:
         return Path(sys.executable).name
@@ -48,13 +45,22 @@ def get_self_filename() -> str:
 SELF_PROGRAM_NAME = get_self_filename()
 
 
+def is_path_relative_to(child_path: Path, parent_path: Path) -> bool:
+    """检查路径是否为另一路径的子路径（兼容 Python 3.6+）"""
+    try:
+        child_path.relative_to(parent_path)
+        return True
+    except ValueError:
+        return False
+
+
 def get_file_type(file_path: str) -> str:
     """获取文件类型（按时间整理模式使用）"""
     ext = Path(file_path).suffix.lower()
     if ext in VIDEO_EXTENSIONS:
         return '视频'
     elif ext in PHOTO_EXTENSIONS:
-        return '照片'
+        return '图片'
     elif ext in DOCUMENT_EXTENSIONS:
         return '文档'
     elif ext in AUDIO_EXTENSIONS:
@@ -243,7 +249,7 @@ def process_folder_recursive_time(source_path: Path, target_path: Path,
     error_count = 0
 
     for item in source_path.iterdir():
-        if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
+        if item.resolve() == target_path or is_path_relative_to(item.resolve(), target_path):
             continue
         if is_self_file(str(item)):
             continue
@@ -285,7 +291,7 @@ def process_folder_recursive_time(source_path: Path, target_path: Path,
                 })
                 processed_count += 1
                 
-            except Exception as e:
+            except (OSError, PermissionError, shutil.Error) as e:
                 print(f"错误处理文件 {item.name}: {e}")
                 error_count += 1
         
@@ -369,7 +375,7 @@ def organize_by_time(source_dir: str, target_dir: str, process_folders: bool,
         print("\n文件夹整理预览：")
         preview_items = []
         for item in source_path.iterdir():
-            if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
+            if item.resolve() == target_path or is_path_relative_to(item.resolve(), target_path):
                 continue
             if is_self_file(str(item)):
                 continue
@@ -386,6 +392,8 @@ def organize_by_time(source_dir: str, target_dir: str, process_folders: bool,
             print()
             
             confirm = input("是否确认开始整理？(y/n): ").strip().lower()
+            if confirm in ['q', 'quit', '退出']:
+                raise UserExitException("用户选择退出程序")
             if confirm != 'y':
                 print("已取消操作")
                 return False, []
@@ -398,7 +406,7 @@ def organize_by_time(source_dir: str, target_dir: str, process_folders: bool,
         )
     else:
         for item in source_path.iterdir():
-            if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
+            if item.resolve() == target_path or is_path_relative_to(item.resolve(), target_path):
                 print(f"跳过目标目录：{item.name}")
                 continue
             if is_self_file(str(item)):
@@ -446,7 +454,7 @@ def organize_by_time(source_dir: str, target_dir: str, process_folders: bool,
                     })
                     processed_count += 1
                     
-                except Exception as e:
+                except (OSError, PermissionError, shutil.Error) as e:
                     print(f"错误处理文件 {item.name}: {e}")
                     error_count += 1
             
@@ -496,8 +504,10 @@ def process_folder_recursive(source_path: Path, target_path: Path, file_type_fun
     processed_count = 0
     error_count = 0
     
+    empty_folder_target = target_path / "空文件夹" if move_files else None
+    
     for item in source_path.iterdir():
-        if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
+        if item.resolve() == target_path or is_path_relative_to(item.resolve(), target_path):
             continue
         if is_self_file(str(item)):
             continue
@@ -536,7 +546,7 @@ def process_folder_recursive(source_path: Path, target_path: Path, file_type_fun
                 })
                 processed_count += 1
                 
-            except Exception as e:
+            except (OSError, PermissionError, shutil.Error) as e:
                 print(f"错误处理文件 {item.name}: {e}")
                 error_count += 1
         
@@ -546,10 +556,26 @@ def process_folder_recursive(source_path: Path, target_path: Path, file_type_fun
             processed_count += sub_count
             error_count += sub_error
 
-            # 修复：检查当前文件夹是否为空，而不是使用累计的processed_count
             try:
                 if not any(item.iterdir()):
-                    if move_files:
+                    if empty_folder_target and move_files:
+                        empty_folder_target.mkdir(parents=True, exist_ok=True)
+                        dest_empty = empty_folder_target / item.name
+                        if dest_empty.exists():
+                            counter = 1
+                            while dest_empty.exists():
+                                dest_empty = empty_folder_target / f"{item.name}_{counter}"
+                                counter += 1
+                        shutil.move(str(item), str(dest_empty))
+                        print(f"已移动空文件夹到：空文件夹/{dest_empty.name}")
+                        processed_items.append({
+                            'type': 'folder',
+                            'name': item.name,
+                            'destination': f"空文件夹/{dest_empty.name}",
+                            'action': '移动',
+                            'source': str(item)
+                        })
+                    elif move_files:
                         shutil.rmtree(str(item))
                         print(f"已删除空文件夹：{item.name}")
                     else:
@@ -599,7 +625,7 @@ def organize_by_type(source_dir: str, target_dir: str, process_folders: bool,
         )
     else:
         for item in source_path.iterdir():
-            if item.resolve() == target_path or item.resolve().is_relative_to(target_path):
+            if item.resolve() == target_path or is_path_relative_to(item.resolve(), target_path):
                 print(f"跳过目标目录：{item.name}")
                 continue
             if is_self_file(str(item)):
@@ -641,7 +667,7 @@ def organize_by_type(source_dir: str, target_dir: str, process_folders: bool,
                     })
                     processed_count += 1
                     
-                except Exception as e:
+                except (OSError, PermissionError, shutil.Error) as e:
                     print(f"错误处理文件 {item.name}: {e}")
                     error_count += 1
     
@@ -714,7 +740,7 @@ def rollback_operation(target_dir: str, record_index: int) -> bool:
                         print(f"警告：文件夹不存在：{dest_path}")
                 success_count += 1
                 
-        except Exception as e:
+        except (OSError, PermissionError, shutil.Error) as e:
             print(f"错误回滚 {item['name']}: {e}")
             error_count += 1
     
@@ -722,6 +748,8 @@ def rollback_operation(target_dir: str, record_index: int) -> bool:
     print(f"回滚完成！成功回滚：{success_count} 个项目，错误：{error_count} 个")
     
     remove_record = input("\n是否从 log 中删除此条整理记录？(y/n): ").strip().lower()
+    if remove_record in ['q', 'quit', '退出']:
+        raise UserExitException("用户选择退出程序")
     if remove_record == 'y':
         history.pop(record_index)
         save_log_history(target_dir, history)
@@ -732,7 +760,7 @@ def rollback_operation(target_dir: str, record_index: int) -> bool:
 
 def view_log_mode():
     print("=" * 60)
-    print("文件分类整理程序 v3.4.2 - 查看日志")
+    print("文件分类整理程序 v3.5 - 查看日志")
     print("=" * 60)
     print()
     
@@ -794,7 +822,7 @@ def view_log_mode():
 
 def rollback_mode(target_dir: str = None):
     print("=" * 60)
-    print("文件分类整理程序 v3.4.2 - 回滚模式")
+    print("文件分类整理程序 v3.5 - 回滚模式")
     print("=" * 60)
     print()
     
@@ -875,7 +903,7 @@ def rollback_mode(target_dir: str = None):
 
 def main():
     print("=" * 60)
-    print("文件分类整理程序 v3.4.2")
+    print("文件分类整理程序 v3.5")
     print("=" * 60)
     print()
     
@@ -984,10 +1012,12 @@ def main():
                 )
             
             if success:
-                create_log_record(
+                log_saved = create_log_record(
                     target_dir, source_dir, process_folders, 
                     move_files, organize_mode, processed_items
                 )
+                if not log_saved:
+                    print("警告：log 文件保存失败，回滚功能可能无法使用")
         else:
             print("已取消操作")
     
