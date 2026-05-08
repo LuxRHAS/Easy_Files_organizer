@@ -10,14 +10,14 @@ import sys
 import shutil
 import json
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from datetime import datetime
 
-TEST_BASE_DIR = '/tmp/file_organizer_test'
-TEST_SOURCE_DIR = f'{TEST_BASE_DIR}/test_source'
-TEST_TARGET_DIR = f'{TEST_BASE_DIR}/test_target'
-PROJECT_DIR = '/Users/fartherrhas/Code/Easy_Files_organizer'
+TEST_BASE_DIR = os.environ.get('TEST_BASE_DIR', tempfile.mkdtemp(prefix='file_organizer_test_'))
+TEST_SOURCE_DIR = os.path.join(TEST_BASE_DIR, 'test_source')
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class TestResult:
     def __init__(self):
@@ -56,6 +56,7 @@ def cleanup_test_dirs():
     if os.path.exists(TEST_BASE_DIR):
         shutil.rmtree(TEST_BASE_DIR)
     os.makedirs(TEST_SOURCE_DIR, exist_ok=True)
+    print(f"测试目录：{TEST_BASE_DIR}")
 
 
 def create_test_files():
@@ -518,11 +519,22 @@ def test_self_file_skip(result):
         return False
 
 
+def cleanup_all_test_dirs():
+    """清理所有测试目录"""
+    try:
+        if os.path.exists(TEST_BASE_DIR):
+            shutil.rmtree(TEST_BASE_DIR)
+            print(f"已清理测试目录：{TEST_BASE_DIR}")
+    except Exception as e:
+        print(f"清理测试目录时出错：{e}")
+
+
 def main():
     print("="*60)
     print("文件分类整理程序 - 全面功能测试")
     print("="*60)
     print(f"测试开始时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"测试临时目录：{TEST_BASE_DIR}")
     print("="*60)
     
     result = TestResult()
@@ -546,6 +558,9 @@ def main():
     success = result.summary()
     
     print(f"\n测试完成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # 清理测试目录
+    cleanup_all_test_dirs()
     
     if success:
         print("\n🎉 所有测试通过！")

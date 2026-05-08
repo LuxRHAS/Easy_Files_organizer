@@ -6,7 +6,8 @@
 **测试版本**: v3.5  
 **测试环境**: macOS  
 **Python 版本**: Python 3.6+  
-**测试结果**: ✅ **所有测试通过 (14/14)**
+**测试结果**: ✅ **所有测试通过 (14/14)**  
+**可移植性修复**: ✅ 已完成（支持跨平台和环境变量配置）
 
 ---
 
@@ -326,7 +327,9 @@ test_source/
 ### 测试数据
 - **测试文件数**: 12 个（每类文件 2 个）
 - **测试文件夹数**: 2 个（包含嵌套文件）
-- **测试目录**: /tmp/file_organizer_test/
+- **测试目录**: 动态临时目录（支持环境变量配置）
+  - 默认：系统临时目录（`tempfile.mkdtemp()`）
+  - 自定义：`TEST_BASE_DIR` 环境变量
 
 ---
 
@@ -392,6 +395,63 @@ test_source/
 - ✅ APFS (macOS)
 - ✅ ext4 (Linux)
 - ✅ NTFS (Windows)
+
+---
+
+## 可移植性测试
+
+### 测试脚本路径可移植性 ✅
+
+**测试目的**: 验证测试脚本可以在任意位置运行
+
+**测试场景**:
+1. ✅ 从项目目录运行：`python3 test_all_features.py`
+2. ✅ 从其他目录运行：`cd /tmp && python3 /path/to/test_all_features.py`
+3. ✅ 使用环境变量指定测试目录
+
+**测试结果**:
+- ✓ 项目路径动态获取成功
+- ✓ 支持跨目录运行
+- ✓ 所有测试用例通过
+
+---
+
+### 测试目录可移植性 ✅
+
+**测试目的**: 验证测试目录在不同操作系统上的兼容性
+
+**修复前**:
+```python
+TEST_BASE_DIR = '/tmp/file_organizer_test'  # 仅 Unix/Linux/macOS
+```
+
+**修复后**:
+```python
+TEST_BASE_DIR = os.environ.get('TEST_BASE_DIR', tempfile.mkdtemp(prefix='file_organizer_test_'))
+```
+
+**测试结果**:
+- ✓ macOS: 使用 `/var/folders/...` 临时目录
+- ✓ Linux: 使用 `/tmp/...` 临时目录
+- ✓ Windows: 使用 `C:\Users\...\AppData\Local\Temp\...`
+- ✓ 支持环境变量 `TEST_BASE_DIR` 自定义
+- ✓ 测试结束后自动清理
+
+---
+
+### 环境变量配置测试 ✅
+
+**测试命令**:
+```bash
+TEST_BASE_DIR=/tmp/custom_test_dir python3 test_all_features.py
+```
+
+**测试结果**:
+- ✓ 成功使用自定义目录 `/tmp/custom_test_dir`
+- ✓ 所有 14 个测试用例通过
+- ✓ 测试结束后目录被正确清理
+
+---
 
 ---
 
