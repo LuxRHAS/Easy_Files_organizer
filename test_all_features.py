@@ -5,11 +5,12 @@
 测试所有功能确保正常运行
 """
 
-import os
-import sys
-import shutil
+import atexit
 import json
+import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -529,6 +530,12 @@ def cleanup_all_test_dirs():
         print(f"清理测试目录时出错：{e}")
 
 
+# 注册退出时清理函数，防止异常退出时临时目录残留
+# 如果用户通过环境变量自行指定了目录，则不注册自动清理
+if 'TEST_BASE_DIR' not in os.environ:
+    atexit.register(cleanup_all_test_dirs)
+
+
 def main():
     print("="*60)
     print("文件分类整理程序 - 全面功能测试")
@@ -558,9 +565,6 @@ def main():
     success = result.summary()
     
     print(f"\n测试完成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # 清理测试目录
-    cleanup_all_test_dirs()
     
     if success:
         print("\n🎉 所有测试通过！")
